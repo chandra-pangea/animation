@@ -1,0 +1,8 @@
+{
+  "task": "login-register",
+  "brd_version": "v1",
+  "brd_updated_at": "2026-04-17T00:00:00Z",
+  "linked_changes": { "arch": null, "proposal": null },
+  "arch_based_on_brd": null,
+  "proposal_based_on_brd": null
+}

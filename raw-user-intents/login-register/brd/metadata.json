@@ -1,0 +1,11 @@
+{
+  "task": "login-register",
+  "currentVersion": "v1",
+  "created": "2026-04-17",
+  "lastUpdated": "2026-04-17",
+  "status": "Active",
+  "phase": "BRD",
+  "iterations": [
+    { "version": "v1", "date": "2026-04-17", "summary": "Initial draft from user input" }
+  ]
+}

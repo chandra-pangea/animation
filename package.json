@@ -1,0 +1,12 @@
+{
+  "name": "animation",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix react-ts-vite-app\"",
+    "install:all": "npm install --prefix backend && npm install --prefix react-ts-vite-app"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

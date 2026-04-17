@@ -1,26 +1,28 @@
-import "./App.css";
-import videoSrc from '../public/assets/video.mp4';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Dashboard from './pages/Dashboard';
 
-function App() {
-  return (
-    <div className="logo-container">
-      <video
-        src={videoSrc}
-        autoPlay
-        loop
-        muted
-        playsInline
-        style={{
-          width: '30vw',
-          height: '30vh',
-          objectFit: 'cover',
-          position: 'fixed',
-          top: '35vh',
-          left: '35vw'
-        }}
-      />
-    </div>
-  );
+function PrivateRoute({ children }: { children: React.ReactNode }) {
+  return localStorage.getItem('token') ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
-export default App;
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route
+          path="/dashboard"
+          element={
+            <PrivateRoute>
+              <Dashboard />
+            </PrivateRoute>
+          }
+        />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
