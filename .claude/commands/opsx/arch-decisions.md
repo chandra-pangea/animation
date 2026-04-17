@@ -1,0 +1,422 @@
+---
+name: arch-decisions
+description: >
+  Guided architecture decision-making for a BRD-backed feature or a brand-new
+  project. Trigger on "/opsx:arch-decisions", "architecture decisions", "arch
+  decisions", "set up architecture", "define tech stack", "system design", or
+  whenever the user finishes a BRD and wants to lock technical choices.
+  Writes `openspec/changes/arch-decisions-<slug>/{proposal.md,tasks.md}` plus
+  a machine-readable `## Scaffold` section consumed by the Forge orchestrator.
+compatibility:
+  tools: [claude-code, cursor, gemini-cli]
+  commands:
+    claude-code: /opsx:arch-decisions
+    cursor: /opsx-arch-decisions
+    gemini-cli: "@arch-decisions or natural language"
+---
+
+# Architecture Decisions Skill — Phase 2 of 3
+
+Context-aware: detects **new-project setup** vs **feature addition to an
+existing codebase** and asks only the relevant questions. Persists every
+decision under `openspec/changes/arch-decisions-<slug>/` so Phase 3
+(`/opsx:propose`) and the Forge "Generate & commit" button have a stable
+artifact to consume.
+
+---
+
+## Phase 0 — Context detection
+
+### Step 0.1 — Short-circuit if already decided
+
+```bash
+ls openspec/changes 2>/dev/null | grep -E '^arch-decisions-' | head -5
+```
+
+If any `openspec/changes/arch-decisions-*/proposal.md` already exists **and
+is non-empty**, do not re-ask. Respond with a single line and stop:
+
+```
+Architecture decisions already saved at
+openspec/changes/<existing-slug>/proposal.md — nothing to do.
+Delete that folder or start a new task to redo them.
+```
+
+### Step 0.2 — Pick the active BRD
+
+Forge override (authoritative):
+If the invoking message contains a hint like
+`use BRD task "<slug>"`, `BRD task: <slug>`, `task=<slug>`, or the kickoff
+line `/opsx:arch-decisions use BRD task "<slug>" — do not ask which BRD to use`,
+treat `<slug>` as the active task, read `raw-user-intents/<slug>/brd/brd.md`
+directly, and go to Phase 1. **Never ask which BRD to use.**
+
+No hint? Auto-select:
+1. Candidate list = every `raw-user-intents/<task>/brd/brd.md` with size > 0.
+2. Pick the **most recently modified** BRD; tiebreak by
+   `state.json.brd_updated_at`, then lexicographic task name.
+3. If a `state.json.arch_based_on_brd` exists and is older than the current
+   `brd_version`, warn once: `⚠ Arch was based on BRD v<old> but current is v<new>. Regenerating.`
+
+If no BRD at all → ask for a project name (the only question allowed in
+Phase 0).
+
+### Step 0.3 — Detect existing vs new project
+
+```bash
+ls app/ apps/ packages/ package.json pnpm-workspace.yaml 2>/dev/null
+```
+
+- **Existing project** (any of the above present) → `mode = existing-project`.
+- **Otherwise** → `mode = new-project`.
+
+State the mode in a single line and continue.
+
+---
+
+## Phase 1 — Banner (first turn only)
+
+Print **once** at the very start. Never re-print on follow-up turns.
+
+```
+🏗  Architecture Decision Wizard — <mode>
+BRD: <task> (v<N>)
+I'll work through 5 categories. One question set at a time — reply in any
+form ("1", "rest, modular", "defaults", "skip" all work).
+```
+
+---
+
+## Phase 2 — Conversation rules (read before asking anything)
+
+1. **One category per turn.** Wait for the user before moving on.
+2. **Pre-fill from the BRD.** Every category starts with a
+   `Pre-filled from BRD:` block so the user only confirms.
+3. **Never re-introduce yourself on follow-ups.** No re-listing of the 5
+   categories, no repeating the banner.
+4. **Accept terse answers.** "1", "a", "rest", "modular monolith, rest",
+   "defaults", "skip" are all valid — map to decisions and advance.
+5. **`skip` / `defaults`** → accept the BRD pre-fills as final for that
+   category and move on.
+6. When all 5 categories are answered → go straight to Phase 3 review.
+
+---
+
+## Phase 2 — Questions
+
+### MODE: new-project (full 5-category setup)
+
+#### Category 1 — System architecture
+- **Style:** Monolith / Modular Monolith / Microservices / Event-Driven / Serverless
+- **Communication:** REST / GraphQL / gRPC / Message queue / WebSocket / Mix
+- **Constraints:** scale (users/day, rps), data sensitivity (none/PII/HIPAA/PCI), latency class, external integrations
+
+#### Category 2 — Tech stack
+**Backend**
+- Language (Node / Python / Go / Java / Ruby / .NET / other) + framework
+- ✅ **Node.js template check:** if the user picks Node/Express/Fastify/NestJS,
+  offer [nexus](https://github.com/sandeepp-org/nexus) (domain-driven monorepo
+  with auth/user/channels + all util-* packages pre-wired). On yes →
+  `backend_template = nexus`.
+
+**Frontend**
+- SPA or SSR/SSG + framework (React / Next / Vue / …)
+- ✅ **React template check:** offer [canopy](https://github.com/sandeepp-org/canopy)
+  (chroma tokens + shadcn-core + shadcn-modulus + frontend-utils + Tailwind v4).
+  On yes → `frontend_template = canopy`.
+
+**Database:** type + engine (Postgres / MongoDB / Redis / DynamoDB / …), cache layer.
+**APIs & Auth:** API style, auth mechanism (JWT / OAuth2 / Session / API keys / SSO), third-party integrations.
+**Tooling:** package manager, linter/formatter.
+
+#### Category 3 — App structure
+Repo strategy (mono / poly / hybrid), folder convention, module rules,
+frontend↔backend coupling.
+
+#### Category 4 — Deployment
+Cloud provider, containerization, CI/CD, environments, IaC, CDN/edge.
+
+#### Category 5 — Non-functional requirements
+Performance targets, scalability approach, reliability SLA + RTO/RPO,
+security posture + compliance, observability stack, maintainability
+(coverage target, docs standard, dep strategy).
+
+### MODE: existing-project (feature-only, 5 categories)
+
+Do **not** ask about tech stack, repo strategy, CI/CD, or anything that's
+already in place. Ask only:
+
+1. **Feature placement** — which domain (existing/new), backend/frontend/both, which BRD FRs are in scope.
+2. **API / interface changes** — new endpoints (method + path + purpose), modified endpoints, new WS/SSE channels.
+3. **Data & schema** — new collections/tables/models (name + key fields), modifications to existing schemas.
+4. **Integrations & auth** — new external services, auth or permission changes, new packages.
+5. **Feature NFRs** — feature-specific perf, security, observability requirements.
+
+---
+
+## Phase 3 — Review & accept
+
+Print a compact summary (format adapts to mode):
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋  ARCHITECTURE REVIEW — <project or BRD task>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. SYSTEM        <style | communication | constraints>
+2. TECH STACK    <backend+template | frontend+template | db | auth>
+3. APP STRUCTURE <repo | folders | coupling>
+4. DEPLOYMENT    <cloud | docker | ci/cd | envs | iac | cdn>
+5. NFR           <perf | scale | uptime | security | obs | coverage>
+
+[A]ccept   [E]dit a section   [R]estart
+```
+
+- **Edit** → ask which section, re-ask those questions, re-show summary.
+- **Restart** → back to Phase 2.
+- **Accept** (A / "yes" / "accept" / "done") → **write all artifacts
+  immediately in the same turn** (Phase 4). Do not wait for further prompts.
+  The Forge "Generate & commit" button reads these files directly — if
+  they're missing, the downstream scaffold + commit cannot run.
+
+---
+
+## Phase 4 — Persist artifacts
+
+**Change slug:**
+- `mode = new-project` → `arch-decisions-<project-slug>`
+- `mode = existing-project` → `arch-decisions-<brd-slug>-feature`
+
+### 4.1 — Clone templates (new-project only, when selected)
+
+Clone only. Do not run installers or init scripts.
+
+```bash
+# nexus selected
+git clone https://github.com/sandeepp-org/nexus apps/backend
+rm -rf apps/backend/.git
+
+# canopy selected
+git clone https://github.com/sandeepp-org/canopy apps/frontend
+rm -rf apps/frontend/.git
+```
+
+Templates own their internals — do not reorganize anything inside them.
+
+### 4.2 — Write `openspec/changes/<slug>/proposal.md`
+
+Use the [proposal template](#proposal-template) below. End the file with a
+[`## Scaffold` section](#scaffold-section) for the Forge orchestrator.
+
+### 4.3 — Write `openspec/changes/<slug>/tasks.md`
+
+This file is **mandatory** — `/opsx:tasks-json` and the Forge Task Review
+screen read it. Use the [tasks template](#tasks-template).
+
+### 4.4 — Write `openspec/changes/<slug>/specs/<area>/spec.md`
+
+`<area>` is `architecture` for new-project, `feature` for existing-project.
+
+### 4.5 — Update `state.json`
+
+```json
+{
+  "task": "<brd-task-or-project-slug>",
+  "brd_version": "v<N>",
+  "brd_updated_at": "<ISO-8601>",
+  "linked_changes": {
+    "arch": "<change-slug>",
+    "proposal": null
+  },
+  "arch_based_on_brd": "v<N>",
+  "proposal_based_on_brd": null
+}
+```
+
+### 4.6 — Confirm to the user
+
+```
+✅ Architecture decisions saved.
+
+  openspec/changes/<slug>/
+    ├── proposal.md
+    ├── tasks.md
+    └── specs/<area>/spec.md
+  <cloned templates — if any>
+  state.json → linked arch = <slug>
+
+Next: click "Generate & commit" in Forge, or run /opsx:propose for a deeper
+implementation plan.
+```
+
+---
+
+## Proposal Template
+
+```markdown
+# Architecture Decisions — <Project or BRD Task>
+
+## Summary
+<Project | Feature> architecture decisions.
+Mode: <new-project | feature-addition>
+BRD: raw-user-intents/<slug>/brd/brd.md (v<N>)   <!-- omit if no BRD -->
+Date: <YYYY-MM-DD>
+
+## 1. System Architecture
+- **Style:** <decision>
+- **Communication:** <decision>
+- **Constraints:** scale / sensitivity / latency / integrations
+- **Rationale:** <1-2 sentences>
+
+## 2. Tech Stack
+### Backend
+- Language: <x> | Framework: <x>
+- Template: <nexus | none> (<template repo url if set>)
+- Pre-built features: <list if template>
+- Packages: <list if template>
+
+### Frontend
+- Framework: <x> | Rendering: <spa | ssr | ssg>
+- Template: <canopy | none>
+- Design system packages: <list if template>
+
+### Database
+- Primary: <type + engine>
+- Cache: <x or none>
+
+### APIs & Auth
+- API style: <x>
+- Auth: <x>
+- Integrations: <list>
+
+### Tooling
+- Package manager: <x> | Linting: <x>
+
+## 3. App Structure
+Repo: <x> | Folders: <x> | Module rules: <x> | Coupling: <x>
+
+## 4. Deployment
+Cloud: <x> | Docker: <x> | CI/CD: <x> | Envs: <x> | IaC: <x> | CDN: <x>
+
+## 5. Non-Functional Requirements
+- Performance: <p99 target, rps, caching>
+- Scalability: <approach + db scaling>
+- Reliability: <uptime SLA, RTO/RPO>
+- Security: <auth level, encryption, compliance, secrets mgmt>
+- Observability: <logging / metrics / tracing / alerting tools>
+- Maintainability: <coverage target, docs standard, dependency policy>
+
+## Decision Log
+| Decision | Alternatives | Reason |
+|----------|-------------|--------|
+| <key decision> | <alt A, alt B> | <rationale> |
+
+## Open Questions
+- [ ] <any TBDs>
+
+## Scaffold
+<!-- see Scaffold section spec below -->
+```
+
+---
+
+## Tasks Template
+
+`openspec:tasks-json` expects `## N. Group Name` group headers and
+`- [ ] N.N description` task lines. Emit one tasks.md following that shape.
+Every task in the initial file MUST be unchecked.
+
+```markdown
+# Tasks — <Project or BRD Task>
+
+> Change: openspec/changes/<slug>
+> Generated from architecture decisions on <YYYY-MM-DD>
+
+## 1. Scaffolding
+- [ ] 1.1 Clone/prepare backend template (<nexus | custom>)
+- [ ] 1.2 Clone/prepare frontend template (<canopy | custom>)
+- [ ] 1.3 Wire workspace config (pnpm / turbo / tsconfig paths)
+
+## 2. Backend — <feature-domain>
+- [ ] 2.1 Add domain folder `apps/backend/app/src/<domain>/`
+- [ ] 2.2 Define entities & ports (`entities/`, `ports/`)
+- [ ] 2.3 Implement service + unit tests (L1 harness)
+- [ ] 2.4 Expose HTTP route(s): <METHOD /path> …
+- [ ] 2.5 Zod request/response schemas
+
+## 3. Database
+- [ ] 3.1 Prisma model changes (<entities>)
+- [ ] 3.2 Migration `<YYYYMMDD_hhmm_<name>>`
+- [ ] 3.3 Seed / fixture updates
+
+## 4. Frontend — <feature>
+- [ ] 4.1 Create screen/component under `apps/backend/front-end-demo/src/<feature>/`
+- [ ] 4.2 API client + types in `api.ts`
+- [ ] 4.3 State & interactions (forms, optimistic updates)
+- [ ] 4.4 Loading / error / empty states
+
+## 5. Integrations & auth
+- [ ] 5.1 <Third-party API wiring, if any>
+- [ ] 5.2 Auth / permission changes (<new roles / middleware>)
+- [ ] 5.3 Env vars + secrets (document in `.env.example`)
+
+## 6. Quality gates
+- [ ] 6.1 Unit tests (`pnpm --filter app test`)
+- [ ] 6.2 Typecheck (`pnpm --filter app typecheck`)
+- [ ] 6.3 Lint (`pnpm --filter app lint`)
+- [ ] 6.4 Manual smoke per FR-01 … FR-NN acceptance criteria
+```
+
+Rules for tasks.md generation:
+- Every FR in the BRD MUST appear at least once in a task description (FR-01 …).
+- Group count: aim for 4-7 groups; never fewer than 3.
+- Each group has 2-8 tasks; never a single-task group.
+- Tasks are imperatives ("Add …", "Implement …", "Wire …"), not questions.
+
+---
+
+## Scaffold section (Forge integration)
+
+Always append a `## Scaffold` section at the end of `proposal.md`. The Forge
+backend parses it and materializes files on disk, **skipping any path that
+already exists** (re-runs are safe).
+
+**Format (strict):**
+
+````markdown
+## Scaffold
+
+### <relative/path/to/file.ext>
+```<language>
+<file contents verbatim>
+```
+
+### <another/path.ts>
+```ts
+<file contents>
+```
+````
+
+Rules:
+- Paths are always **relative** to the project root. Absolute paths and
+  `..` segments are rejected by the parser.
+- Each entry is a `###` heading with a path, followed by exactly one fenced
+  code block. No extra prose between them.
+- Emit **minimal** stubs only — config files, `.gitkeep` markers, empty
+  wrappers, a top-level `README.md`. Do **not** emit full feature code here;
+  that's what `/opsx:apply` is for.
+- Omit the `## Scaffold` section entirely if no new files are needed.
+
+---
+
+## Guardrails
+
+- **Ask one category per turn**, pre-fill from BRD, accept terse answers.
+- **Never re-run Phase 1/2 once `arch-decisions-*/proposal.md` exists.**
+- **Always emit `tasks.md`** with every category populated (Forge depends on
+  this for the Task Review screen).
+- **Honor the Forge hint protocol** (`use BRD task "<slug>"`) with zero
+  clarifying questions.
+- **Safe re-runs** — scaffold parser skips existing files; tasks.md is
+  overwritten only when a new accept happens (never during Q&A).
+- **Respect template boundaries** — clone-only, no `npm install`, no
+  reorganizing nexus/canopy internals.

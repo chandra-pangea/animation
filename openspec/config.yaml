@@ -1,0 +1,49 @@
+schema: spec-driven
+
+context: |
+  Project: AI-powered project scaffold with spec-driven development workflows.
+  Purpose: Template repository that teams clone to start new projects with structured
+  planning and implementation baked in from day one.
+
+  Multi-tool: Works across Claude Code, Cursor, and Gemini CLI.
+  All skills/commands are mirrored in .claude/, .cursor/, .gemini/.
+
+  Key conventions:
+    - BRDs stored in raw-user-intents/<task-name>/ with versioned iterations
+    - Architecture decisions captured via guided wizard
+    - Task checkboxes use - [ ] / - [x] format with X.Y IDs (e.g., 1.1, 2.3)
+    - Completed changes archived to openspec/changes/archive/YYYY-MM-DD-<name>/
+    - Single-task execution with /opsx:run auto-archives when last task completes
+
+rules:
+  workflow:
+    - "PHASE_ORDER: BRD → Arch Decisions → Proposal. Each phase builds on the previous."
+    - "BACK_AND_FORTH: Users can return to any earlier phase and update it. When an earlier phase is updated, all downstream phases are marked stale and should be regenerated from the latest upstream."
+    - "LINKING: All phases for a feature share the same task name. state.json in raw-user-intents/<task>/ tracks which version each downstream phase was built from."
+    - "STALENESS: Before generating arch-decisions or proposals, check state.json. If upstream BRD version is newer than what downstream was built from, warn the user and offer to regenerate."
+    - "PHASE_1_BRD: raw-user-intents/<task>/ — Captures what and why. Creates state.json on first run."
+    - "PHASE_2_ARCH: arch-decisions-<task> — Reads latest BRD, records brd version in state.json."
+    - "PHASE_3_PROPOSAL: openspec/changes/<task>/ — Reads latest BRD + arch specs, records versions in state.json."
+  proposal:
+    - Keep proposals concise — focus on what and why, not how
+    - Always include a Non-goals section to define boundaries
+    - Reference BRD if one exists in raw-user-intents/ for this change
+    - Include rollback plan or revert strategy
+    - Identify affected areas of the codebase
+  specs:
+    - Use Given/When/Then format for acceptance criteria
+    - Reference existing patterns in the codebase before inventing new ones
+    - Separate functional and non-functional requirements clearly
+    - Every requirement must be testable and verifiable
+  design:
+    - Include data models and API contracts where applicable
+    - Document key trade-offs and alternatives considered
+    - Call out risks and unknowns explicitly
+    - Reference specs requirements by ID to maintain traceability
+  tasks:
+    - Break tasks into small chunks completable in one session
+    - Order tasks by dependency — prerequisites first
+    - Each task must be independently verifiable
+    - Use ## numbered headings to group related tasks
+    - Use X.Y format for task IDs (e.g., 1.1, 1.2, 2.1)
+    - Include sub-bullets for complex tasks with multiple steps

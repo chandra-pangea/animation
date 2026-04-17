@@ -1,0 +1,305 @@
+---
+name: brd
+description: >
+  Generate, iterate, and finalize Business Requirements Documents (BRDs).
+  Trigger on "/opsx:brd", "create a BRD", "draft requirements", "business
+  requirements", "PRD", "product spec", or whenever the user dumps raw
+  feature ideas that need structuring. Fully conversational — no
+  sub-commands. Persists everything under `raw-user-intents/<task>/`.
+compatibility:
+  tools: [claude-code, cursor, gemini-cli]
+  commands:
+    claude-code: /opsx:brd
+    cursor: /opsx-brd
+    gemini-cli: "@brd or natural language"
+---
+
+# BRD Skill — Phase 1 of 3 (BRD → Arch → Proposal)
+
+Captures the **what** and **why** of a feature/product before any technical
+design. Output lives at `raw-user-intents/<task>/brd/brd.md` and is the
+single source of truth consumed by `/opsx:arch-decisions` downstream.
+
+---
+
+## Phase 0 — Resolve the active task
+
+### Explicit override from Forge (authoritative)
+
+If the invoking message contains one of these hints, skip all inference and
+operate exclusively under the named slug:
+
+- `new task "<slug>"` / `new task <slug>` / `create a brand-new BRD at raw-user-intents/<slug>/brd/brd.md`
+- `use BRD task "<slug>"` / `task=<slug>` / `BRD task: <slug>`
+
+The Forge backend has already allocated the folder; do not rename, move, or
+touch sibling tasks. Go straight to Phase 1 for that slug.
+
+### No hint? Infer or disambiguate
+
+1. **New feature described** → derive a kebab-case slug (e.g. "payment
+   flow" → `payment-flow`) and confirm once:
+   `I'll save this as \`payment-flow\` — OK?`
+2. **Mentions a known task** → scan `raw-user-intents/*/brd/brd.md` and
+   load that task directly.
+3. **Ambiguous ("my BRD")** and multiple BRDs exist → show a numbered
+   list (#, task, version, status) and ask which one.
+
+---
+
+## Phase 1 — Folder layout
+
+Always create folders before writing any file:
+
+```bash
+mkdir -p raw-user-intents/<task>/{brd,input-prompt,diagrams}
+```
+
+```
+raw-user-intents/
+└── <task>/
+    ├── brd/
+    │   ├── brd.md            ← the latest BRD (always overwritten in place)
+    │   └── metadata.json     ← version counter + change log
+    ├── input-prompt/
+    │   ├── interview.md      ← append-only log of user input
+    │   └── <YYYY-MM-DD>-<filename>.md   ← uploads/pastes
+    ├── diagrams/
+    │   └── <name>.md         ← Mermaid diagrams referenced from the BRD
+    └── state.json            ← linkage to arch/proposal phases
+```
+
+No `vN.md` history files. `brd.md` is edited in-place; prior versions are
+summarized in `metadata.json.iterations[]`.
+
+---
+
+## Phase 2 — First-draft generation (generate first, ask later)
+
+Whether the input is a sentence, a paragraph, a pasted doc, or an uploaded
+file:
+
+1. Write the raw input to `input-prompt/interview.md`:
+
+   ```markdown
+   ## Initial Input — <YYYY-MM-DD>
+   <verbatim user text or uploaded content>
+   ```
+
+2. Produce a **complete BRD** using the [template](#brd-template). Never
+   start a long interview — use sensible defaults for missing sections and
+   mark each inferred field with `⚠ assumed`.
+
+3. Save to `brd/brd.md`. Initialize `metadata.json`:
+
+   ```json
+   {
+     "task": "<task-name>",
+     "currentVersion": "v1",
+     "created": "<YYYY-MM-DD>",
+     "lastUpdated": "<YYYY-MM-DD>",
+     "status": "Active",
+     "phase": "BRD",
+     "iterations": [
+       { "version": "v1", "date": "<YYYY-MM-DD>", "summary": "Initial draft from user input" }
+     ]
+   }
+   ```
+
+4. Initialize or refresh `state.json`:
+
+   ```json
+   {
+     "task": "<task-name>",
+     "brd_version": "v1",
+     "brd_updated_at": "<ISO-8601>",
+     "linked_changes": { "arch": null, "proposal": null },
+     "arch_based_on_brd": null,
+     "proposal_based_on_brd": null
+   }
+   ```
+
+5. Show the **full BRD** in the chat, then say exactly:
+
+   ```
+   ✓ BRD saved — raw-user-intents/<task>/brd/brd.md (v1)
+   ⚠ Review fields marked `⚠ assumed`.
+
+   Reply with anything you want to change. Stay silent and I'll treat v1 as accepted.
+   ```
+
+---
+
+## Phase 3 — Refinement loop
+
+For every user message after the draft:
+
+1. **Interpret naturally** — no forms, no structured rounds.
+   - "Add SSO" → append FR
+   - "Timeline is 6 weeks" → update §8
+   - "Drop the compliance section" → remove it
+2. **Patch only the affected sections** of `brd.md`. Never rewrite the whole
+   file.
+3. Append to `interview.md`:
+
+   ```markdown
+   ## Refinement — <YYYY-MM-DD> (v<N> → v<N+1>)
+   User said: <their message>
+   Changed: <one-line summary of the patch>
+   ```
+
+4. Bump `metadata.json.currentVersion`, push an entry into `iterations[]`,
+   update `lastUpdated`, keep `status: Active`.
+5. Update `state.json.brd_version` + `brd_updated_at`. If
+   `linked_changes.arch` or `.proposal` is set, print:
+   `⚠ Arch/Proposal may be stale — regenerate from latest BRD.`
+6. Show **only the changed section(s)**, not the whole BRD.
+
+---
+
+## Phase 4 — Accept / finalize
+
+- Explicit accept ("done", "looks good", "accept", "finalize") →
+  flip `metadata.json.status` to `Finalized` immediately.
+- Silent acceptance (no reply in a follow-up session) → at session start,
+  scan `raw-user-intents/`, auto-finalize any `status: Active` BRD, and
+  greet:
+
+  ```
+  Your BRD for `<task>` (v<N>) was open last session — I marked it Finalized.
+  Keep refining, or move on to `/opsx:arch-decisions`.
+  ```
+
+**One phase per session.** Never pivot into Arch Decisions or Proposal
+writing in the same turn. Always redirect:
+`Run /opsx:arch-decisions to start Phase 2.`
+
+---
+
+## Side flows (detected from natural language)
+
+| User says… | Do |
+|-----------|-----|
+| "show a flow diagram", "user journey", "draw architecture" | Ask for type if unclear (`flowchart LR` / `sequenceDiagram` / `graph TD` / `journey`), save to `diagrams/<name>.md`, link from §11, render inline. |
+| "list my BRDs", "what tasks do I have" | Scan `raw-user-intents/*/metadata.json`, print a numbered table. |
+| "show history", "what changed" | Print `metadata.json.iterations[]`. Remind user that only the latest file is stored. |
+
+---
+
+## BRD Template
+
+```markdown
+# Business Requirements Document — <Task Title>
+
+**Task:** <task-slug>
+**Version:** v1
+**Date:** <YYYY-MM-DD>
+**Status:** Active
+**Owner:** <team or name — ⚠ assumed if unknown>
+
+---
+
+## 1. Executive Summary
+<2-4 sentences: what we're building, why now, who benefits. No tech.>
+
+## 2. Problem Statement
+- **Today (as-is):** <pain / gap / missed opportunity>
+- **Desired future (to-be):** <outcome we're trying to unlock>
+- **Why this matters now:** <business trigger — revenue, compliance, UX, etc.>
+
+## 3. Goals & Success Metrics
+| Goal | KPI / measurable metric | Target |
+|------|-------------------------|--------|
+| <primary goal> | <metric> | <value, timeframe> |
+| <secondary goal> | <metric> | <value, timeframe> |
+
+## 4. Personas & User Stories
+### Personas
+- **<Persona A>** — <1-line context + what they care about>
+- **<Persona B>** — <…>
+
+### User Stories
+- **US-01** — As a `<persona>`, I want `<capability>`, so that `<outcome>`.
+- **US-02** — …
+
+## 5. Scope
+### In scope
+- <bullet>
+
+### Out of scope
+- <bullet>
+
+## 6. Functional Requirements
+
+### FR-01: <short name>
+- **Description:** <what the system must do — user-observable behavior>
+- **Linked stories:** US-01, US-02
+- **Priority:** Must / Should / Nice
+- **Acceptance criteria:**
+  - Given `<precondition>`, when `<action>`, then `<outcome>`.
+  - Given `<precondition>`, when `<action>`, then `<outcome>`.
+
+### FR-02: …
+
+## 7. Non-Functional Requirements
+| Category | Requirement |
+|----------|-------------|
+| Performance | e.g. p95 ≤ 300ms for cart endpoints under 1k rps |
+| Scalability | e.g. 10k concurrent cart sessions |
+| Security | e.g. TLS 1.2+, OWASP Top-10 reviewed |
+| Compliance | e.g. GDPR data export & deletion |
+| Reliability | e.g. 99.9% monthly uptime, RPO ≤ 15m |
+| Accessibility | e.g. WCAG 2.1 AA |
+| Observability | e.g. structured logs, p99 latency dashboard |
+
+## 8. Timeline & Milestones
+| Milestone | Target |
+|-----------|--------|
+| BRD accepted | <date> |
+| Arch decisions done | <date> |
+| Dev start | <date> |
+| Beta / MVP | <date> |
+| GA launch | <date> |
+
+## 9. Dependencies & Integrations
+- **Upstream systems:** <catalog, auth, payments…>
+- **Downstream consumers:** <…>
+- **Teams:** <who must be in the loop>
+
+## 10. Data & Entities (high level)
+<Entities and their relationships — no schemas yet. Example:>
+- `Cart` — belongs to a `User`, holds many `CartItem`s.
+- `CartItem` — references one `Product`, has `quantity`, `priceSnapshot`.
+- `PromoCode` — optional on `Cart`, validated at checkout.
+
+## 11. Constraints, Assumptions & Risks
+### Constraints
+- <budget / deadline / regulatory / existing tech>
+
+### Assumptions
+- <things we're treating as true — mark `⚠ assumed` if unverified>
+
+### Open questions & risks
+| # | Question / risk | Impact | Owner | Status |
+|---|-----------------|--------|-------|--------|
+| 1 | <…> | H/M/L | <team> | Open |
+
+## 12. Appendix
+<!-- diagrams referenced via: [Cart flow](../diagrams/cart-flow.md) -->
+```
+
+---
+
+## Guardrails
+
+- **Generate first, refine later** — never start with a Q&A interview.
+- **Mark every inferred field `⚠ assumed`** so the user can spot them.
+- **Single file, overwrite in place** — `brd.md` is the only BRD copy.
+- **`interview.md` is append-only.**
+- **Show deltas, not full BRD** on refinements.
+- **One phase per session** — never cross into Arch or Proposal in the same
+  turn; always redirect.
+- **Always respect the Forge hint protocol** — when a `new task "<slug>"`
+  or `use BRD task "<slug>"` hint is present, honor it without questions.
+- **Uploaded files** go to `input-prompt/<YYYY-MM-DD>-<filename>.md` to
+  avoid collisions.
